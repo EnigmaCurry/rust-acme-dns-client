@@ -2,6 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/acme-dns-client?color=blue
 )](https://crates.io/crates/acme-dns-client)
+[![Coverage](https://img.shields.io/badge/Coverage-Report-purple)](https://enigmacurry.github.io/rust-acme-dns-client/coverage/master/)
 
 This Rust library implements the client API for
 [joohoi/acme-dns](https://github.com/joohoi/acme-dns)
