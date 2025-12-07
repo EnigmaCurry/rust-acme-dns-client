@@ -56,7 +56,7 @@ struct UpdateRequest<'a> {
 ///
 /// It's intentionally tiny: you configure it with the API base URL,
 /// then call `register`, `update_txt`, and `health`.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AcmeDnsClient {
     base_url: Url,
     http: HttpClient,
@@ -193,7 +193,6 @@ impl Credentials {
         })
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +226,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn register_unexpected_status_errors() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/register");
+            then.status(400).body("bad request");
+        });
+
+        let client = AcmeDnsClient::new(server.base_url()).unwrap();
+        let err = client.register(None).await.unwrap_err();
+
+        mock.assert();
+
+        match err {
+            Error::UnexpectedStatus { status, body } => {
+                assert_eq!(status, StatusCode::BAD_REQUEST);
+                assert_eq!(body, "bad request");
+            }
+            other => panic!("expected UnexpectedStatus, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn update_sends_headers_and_body() {
         let server = MockServer::start();
 
@@ -254,6 +276,37 @@ mod tests {
 
         client.update_txt(&creds, "token123").await.unwrap();
         mock.assert();
+    }
+
+    #[tokio::test]
+    async fn update_unexpected_status_errors() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/update");
+            then.status(400).body("bad_txt");
+        });
+
+        let client = AcmeDnsClient::new(server.base_url()).unwrap();
+        let creds = Credentials {
+            username: "user-uuid".into(),
+            password: "pw".into(),
+            subdomain: "8e57".into(),
+            fulldomain: "8e57.auth.acme-dns.io".into(),
+            allowfrom: vec![],
+        };
+
+        let err = client.update_txt(&creds, "token123").await.unwrap_err();
+
+        mock.assert();
+
+        match err {
+            Error::UnexpectedStatus { status, body } => {
+                assert_eq!(status, StatusCode::BAD_REQUEST);
+                assert_eq!(body, "bad_txt");
+            }
+            other => panic!("expected UnexpectedStatus, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -294,13 +347,40 @@ mod tests {
     }
 
     #[test]
+    fn client_from_env_works() {
+        use std::env;
+
+        // `set_var` is unsafe in Rust 2024.
+        unsafe {
+            env::set_var("ACME_DNS_API_BASE", "https://example.invalid");
+        }
+
+        let client = AcmeDnsClient::from_env().unwrap();
+        // Just make sure it parses and constructs; we don't need to use it further.
+        let _ = client;
+    }
+
+    #[test]
+    fn client_from_env_missing_env_errors() {
+        use std::env;
+
+        // Remove the var to ensure the MissingEnv branch is hit.
+        unsafe {
+            env::remove_var("ACME_DNS_API_BASE");
+        }
+
+        let err = AcmeDnsClient::from_env().unwrap_err();
+
+        match err {
+            Error::MissingEnv(name) => assert_eq!(name, "ACME_DNS_API_BASE"),
+            other => panic!("expected MissingEnv, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn credentials_from_env_works() {
         use std::env;
 
-        // NOTE: `set_var` is unsafe in Rust 2024 because environment mutation
-        // is UB if other threads are concurrently accessing the environment.
-        // For this simple unit test we accept that risk and keep it in a small,
-        // well-contained unsafe block.
         unsafe {
             env::set_var("ACME_DNS_USERNAME", "u");
             env::set_var("ACME_DNS_PASSWORD", "p");
