@@ -6,7 +6,7 @@ RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "1")
 GIT_REMOTE      := env_var_or_default("GIT_REMOTE", "origin")
 
 FUNCS_SCRIPT := "./_scripts/funcs.sh"
-APP          := "rust-acme-dns-client"
+APP          := "acme-dns-client"
 PROJECT_DIR  := ROOT / APP
 MANIFEST     := PROJECT_DIR / "Cargo.toml"
 CARGO_TOML   := MANIFEST
@@ -14,7 +14,7 @@ CARGO_LOCK   := PROJECT_DIR / "Cargo.lock"
 TARGET_DIR   := PROJECT_DIR / "target"
 
 DOCKER       := env_var_or_default("DOCKER", "docker")
-DOCKER_IMAGE := env_var_or_default("DOCKER_IMAGE", "rust-acme-dns-client")
+DOCKER_IMAGE := env_var_or_default("DOCKER_IMAGE", "acme-dns-client")
 
 # print help for Just targets
 help:

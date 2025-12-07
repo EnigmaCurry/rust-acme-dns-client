@@ -132,112 +132,112 @@ jobs:
           files: |
             **/rust-acme-dns-client-v*.tar.gz
 
-  docker:
-    name: Docker image (linux/amd64, linux/arm64)
-    needs: release
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write   # needed for ghcr push
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Pull down all the tar.gz artifacts your build job uploaded
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Extract linux binaries into dist/
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf dist
-          mkdir -p ${{ env.PROJECT_DIR }}/dist/linux-amd64 ${{ env.PROJECT_DIR }}/dist/linux-arm64
-
-          # Find and unpack the linux tarballs
-          for f in artifacts/**/rust-acme-dns-client-v*-Linux-x86_64.tar.gz; do
-            tar -xzf "$f" -C ${{ env.PROJECT_DIR }}/dist/linux-amd64
-          done
-
-          for f in artifacts/**/rust-acme-dns-client-v*-Linux-aarch64.tar.gz; do
-            tar -xzf "$f" -C ${{ env.PROJECT_DIR }}/dist/linux-arm64
-          done
-
-          # Optional sanity check
-          ls -l ${{ env.PROJECT_DIR }}/dist/linux-amd64 ${{ env.PROJECT_DIR }}/dist/linux-arm64
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}},prefix=v
-            type=raw,value=latest
-
-      - name: Build and push multi-arch image
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ env.PROJECT_DIR }}
-          file: ${{ env.PROJECT_DIR }}/Dockerfile.binary
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-
-  # publish:
-  #   name: Publish crate
+  # docker:
+  #   name: Docker image (linux/amd64, linux/arm64)
   #   needs: release
   #   runs-on: ubuntu-latest
+
+  #   permissions:
+  #     contents: read
+  #     packages: write   # needed for ghcr push
 
   #   steps:
   #     - name: Checkout
   #       uses: actions/checkout@v4
 
-  #     - name: Update Rust stable
-  #       run: rustup toolchain install stable
-  #       working-directory: ${{ env.PROJECT_DIR }}
-
-  #     - name: Prepare Cargo.lock for caching
-  #       working-directory: ${{ env.PROJECT_DIR }}
-  #       run: |
-  #         PROJECT_NAME=$(grep '^name' Cargo.toml | sed 's/name = "\(.*\)"/\1/')
-  #         awk '/\[\[package\]\]/{p=0} /name = "'"${PROJECT_NAME}"'"/{p=1} p && /version = /{next} 1' Cargo.lock > Cargo.lock.no-version
-
-  #     - name: Cache cargo registry
-  #       uses: actions/cache@v3
+  #     # Pull down all the tar.gz artifacts your build job uploaded
+  #     - name: Download build artifacts
+  #       uses: actions/download-artifact@v4
   #       with:
-  #         path: ~/.cargo/registry
-  #         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('${{ env.PROJECT_DIR }}/Cargo.lock.no-version') }}
-  #         restore-keys: |
-  #           ${{ runner.os }}-cargo-registry-
+  #         path: artifacts
 
-  #     - name: Check crate is ready for publishing
-  #       run: cargo package
-  #       working-directory: ${{ env.PROJECT_DIR }}
+  #     - name: Extract linux binaries into dist/
+  #       shell: bash
+  #       run: |
+  #         set -euo pipefail
+  #         rm -rf dist
+  #         mkdir -p ${{ env.PROJECT_DIR }}/dist/linux-amd64 ${{ env.PROJECT_DIR }}/dist/linux-arm64
 
-  #     - name: Publish to crates.io
-  #       env:
-  #         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-  #       run: cargo publish --token $CARGO_REGISTRY_TOKEN
-  #       working-directory: ${{ env.PROJECT_DIR }}
+  #         # Find and unpack the linux tarballs
+  #         for f in artifacts/**/rust-acme-dns-client-v*-Linux-x86_64.tar.gz; do
+  #           tar -xzf "$f" -C ${{ env.PROJECT_DIR }}/dist/linux-amd64
+  #         done
+
+  #         for f in artifacts/**/rust-acme-dns-client-v*-Linux-aarch64.tar.gz; do
+  #           tar -xzf "$f" -C ${{ env.PROJECT_DIR }}/dist/linux-arm64
+  #         done
+
+  #         # Optional sanity check
+  #         ls -l ${{ env.PROJECT_DIR }}/dist/linux-amd64 ${{ env.PROJECT_DIR }}/dist/linux-arm64
+
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v3
+
+  #     - name: Set up Buildx
+  #       uses: docker/setup-buildx-action@v3
+
+  #     - name: Log in to GHCR
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
+
+  #     - name: Docker metadata
+  #       id: meta
+  #       uses: docker/metadata-action@v5
+  #       with:
+  #         images: ghcr.io/${{ github.repository }}
+  #         tags: |
+  #           type=semver,pattern={{version}},prefix=v
+  #           type=raw,value=latest
+
+  #     - name: Build and push multi-arch image
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: ${{ env.PROJECT_DIR }}
+  #         file: ${{ env.PROJECT_DIR }}/Dockerfile.binary
+  #         platforms: linux/amd64,linux/arm64
+  #         push: true
+  #         tags: ${{ steps.meta.outputs.tags }}
+  #         labels: ${{ steps.meta.outputs.labels }}
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+
+
+  publish:
+    name: Publish crate
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update Rust stable
+        run: rustup toolchain install stable
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Prepare Cargo.lock for caching
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          PROJECT_NAME=$(grep '^name' Cargo.toml | sed 's/name = "\(.*\)"/\1/')
+          awk '/\[\[package\]\]/{p=0} /name = "'"${PROJECT_NAME}"'"/{p=1} p && /version = /{next} 1' Cargo.lock > Cargo.lock.no-version
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('${{ env.PROJECT_DIR }}/Cargo.lock.no-version') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Check crate is ready for publishing
+        run: cargo package
+        working-directory: ${{ env.PROJECT_DIR }}
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --token $CARGO_REGISTRY_TOKEN
+        working-directory: ${{ env.PROJECT_DIR }}

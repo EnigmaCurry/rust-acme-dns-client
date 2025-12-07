@@ -1,69 +1,113 @@
-# rust-acme-dns-client
+# acme-dns-client
 
-[![Crates.io](https://img.shields.io/crates/v/rust-acme-dns-client?color=blue
-)](https://crates.io/crates/rust-acme-dns-client)
-[![Coverage](https://img.shields.io/badge/Coverage-Report-purple)](https://enigmacurry.github.io/rust-acme-dns-client/coverage/master/)
+[![Crates.io](https://img.shields.io/crates/v/acme-dns-client?color=blue
+)](https://crates.io/crates/acme-dns-client)
 
+This Rust library implements the client API for
+[joohoi/acme-dns](https://github.com/joohoi/acme-dns)
 
-## Install
+## Using acme-dns-client in Rust
 
-[Download the latest release for your platform.](https://github.com/enigmacurry/rust-acme-dns-client/releases)
+The library is designed to be used directly from your Rust code. The basic
+workflow is:
 
-Or install via cargo ([crates.io/crates/rust-acme-dns-client](https://crates.io/crates/rust-acme-dns-client)):
+1. Create an `AcmeDnsClient` with your acme-dns API base URL.
+2. Call `register()` once to obtain credentials (`username`, `password`,
+   `subdomain`, `fulldomain`).
+3. Persist those credentials somewhere safe (database, config file, etc).
+4. For each DNS-01 challenge, call `update_txt()` with the stored credentials
+   and the TXT token provided by your ACME client (e.g. Let’s Encrypt).
 
-```
-cargo install rust-acme-dns-client
-```
+### Simple example
 
-### Tab completion
+```rust
+use acme_dns_client::{AcmeDnsClient, Credentials};
 
-To install tab completion support, put this in your `~/.bashrc` (assuming you use Bash):
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Construct a client pointing at your acme-dns instance
+    let client = AcmeDnsClient::new("https://auth.acme-dns.io")?;
 
-```
-### Bash completion for rust-acme-dns-client (Put this in ~/.bashrc)
-source <(rust-acme-dns-client completions bash)
-```
+    // 2. One-time registration (optionally with allowfrom CIDRs)
+    let creds: Credentials = client.register(None).await?;
+    println!("Registered acme-dns credentials: {creds:#?}");
 
-If you don't like to type out the full name `rust-acme-dns-client`, you can make
-a shorter alias (`h`), as well as enable tab completion for the alias
-(`h`):
+    // You should now:
+    // - Store `creds` somewhere persistent.
+    // - Create a CNAME:
+    //   _acme-challenge.yourdomain.com -> creds.fulldomain
 
-```
-### Alias rust-acme-dns-client as h (Put this in ~/.bashrc):
-alias h=rust-acme-dns-client
-complete -F _rust-acme-dns-client -o bashdefault -o default h
-```
+    // 3. Later, when your ACME library asks you to present a DNS-01 token:
+    let dns01_token = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"; // replace with real token
+    client.update_txt(&creds, dns01_token).await?;
 
-Completion for Zsh and/or Fish has also been implemented, but the
-author has not tested this:
-
-```
-### Zsh completion for rust-acme-dns-client (Put this in ~/.zshrc):
-autoload -U compinit; compinit; source <(rust-acme-dns-client completions zsh)
-
-### Fish completion for rust-acme-dns-client (Put this in ~/.config/fish/config.fish):
-rust-acme-dns-client completions fish | source
-```
-
-## Usage
-
-```
-$ rust-acme-dns-client
-
-Usage: rust-acme-dns-client [OPTIONS] [COMMAND]
-
-Commands:
-  hello        Greeting
-  completions  Generates shell completions script (tab completion)
-  help         Print this message or the help of the given subcommand(s)
-
-Options:
-      --log <LEVEL>  Sets the log level, overriding the RUST_LOG environment variable. [possible values: trace, debug, info, warn, error]
-  -v                 Sets the log level to debug.
-  -h, --help         Print help
-  -V, --version      Print version
+    Ok(())
+}
 ```
 
-## Development
+### Using environment variables
 
-See [DEVELOPMENT.md](DEVELOPMENT.md)
+The crate also provides helpers to construct both the client and credentials
+from environment variables:
+
+```rust
+use acme_dns_client::{AcmeDnsClient, Credentials};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // ACME_DNS_API_BASE must be set, e.g. "https://auth.acme-dns.io"
+    let client = AcmeDnsClient::from_env()?;
+
+    // Credentials are expected in:
+    //   ACME_DNS_USERNAME
+    //   ACME_DNS_PASSWORD
+    //   ACME_DNS_SUBDOMAIN
+    //   ACME_DNS_FULLDOMAIN
+    //   ACME_DNS_ALLOWFROM (optional, comma-separated)
+    let creds = Credentials::from_env()?;
+
+    let dns01_token = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"; // replace with real token
+    client.update_txt(&creds, dns01_token).await?;
+
+    Ok(())
+}
+```
+
+## Testing with manual command line interaction
+
+This library is intended to be used programmatically in your own Rust
+code. However, there is also included a simple manual command line
+tool for testing the interaction with ACME-DNS:
+
+```bash
+## Example manual test CLI command:
+CMD="cargo run --features cli --bin acme-dns-cli -- "
+
+## Make sure to fill in your own values for each exported variable below:
+
+export ACME_DNS_API_BASE="https://auth.acme-dns.io"
+
+# Health check
+${CMD} health
+
+# One-time registration sets env vars in your current shell:
+eval "$(${CMD} register | jq -r '
+  [
+    "export ACME_DNS_USERNAME="  + (.username  | @sh),
+    "export ACME_DNS_PASSWORD="  + (.password  | @sh),
+    "export ACME_DNS_SUBDOMAIN=" + (.subdomain | @sh),
+    "export ACME_DNS_FULLDOMAIN=" + (.fulldomain | @sh),
+    "export ACME_DNS_ALLOWFROM=" + ((.allowfrom | join(",")) | @sh)
+  ]
+  | join("\n")
+')"
+
+
+# Update the TXT record using your account set in the environment:
+# (This token should comes from your ACME API provider (e.g., Let's Encrypt), 
+#  For testing purposes you can use this fake token that is exactly 43 chars long)
+${CMD} update --txt "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ"
+
+# Verify the update matches the TXT record you updated:
+dig +short TXT "$ACME_DNS_FULLDOMAIN"
+```
