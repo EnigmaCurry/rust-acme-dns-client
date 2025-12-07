@@ -239,13 +239,12 @@ mod tests {
 
         mock.assert();
 
-        match err {
-            Error::UnexpectedStatus { status, body } => {
-                assert_eq!(status, StatusCode::BAD_REQUEST);
-                assert_eq!(body, "bad request");
-            }
-            other => panic!("expected UnexpectedStatus, got {other:?}"),
-        }
+        let Error::UnexpectedStatus { status, body } = err else {
+            panic!("expected UnexpectedStatus, got {err:?}");
+        };
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, "bad request");
     }
 
     #[tokio::test]
@@ -300,13 +299,12 @@ mod tests {
 
         mock.assert();
 
-        match err {
-            Error::UnexpectedStatus { status, body } => {
-                assert_eq!(status, StatusCode::BAD_REQUEST);
-                assert_eq!(body, "bad_txt");
-            }
-            other => panic!("expected UnexpectedStatus, got {other:?}"),
-        }
+        let Error::UnexpectedStatus { status, body } = err else {
+            panic!("expected UnexpectedStatus, got {err:?}");
+        };
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body, "bad_txt");
     }
 
     #[tokio::test]
@@ -337,13 +335,12 @@ mod tests {
 
         mock.assert();
 
-        match err {
-            Error::UnexpectedStatus { status, body } => {
-                assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-                assert_eq!(body, "boom");
-            }
-            other => panic!("expected UnexpectedStatus, got {other:?}"),
-        }
+        let Error::UnexpectedStatus { status, body } = err else {
+            panic!("expected UnexpectedStatus, got {err:?}");
+        };
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body, "boom");
     }
 
     #[test]
@@ -371,10 +368,10 @@ mod tests {
 
         let err = AcmeDnsClient::from_env().unwrap_err();
 
-        match err {
-            Error::MissingEnv(name) => assert_eq!(name, "ACME_DNS_API_BASE"),
-            other => panic!("expected MissingEnv, got {other:?}"),
-        }
+        let Error::MissingEnv(name) = err else {
+            panic!("expected MissingEnv, got {err:?}");
+        };
+        assert_eq!(name, "ACME_DNS_API_BASE");
     }
 
     #[test]
@@ -398,5 +395,34 @@ mod tests {
             creds.allowfrom,
             vec!["1.2.3.4/32".to_string(), "10.0.0.0/8".to_string()]
         );
+    }
+
+    #[test]
+    fn new_with_invalid_url_errors() {
+        let err = AcmeDnsClient::new("not a url").unwrap_err();
+
+        let Error::Url(_) = err else {
+            panic!("expected Error::Url, got {err:?}");
+        };
+    }
+
+    #[tokio::test]
+    async fn register_invalid_json_errors() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/register");
+            // 201 but body is not valid JSON
+            then.status(201).body("this is not json");
+        });
+
+        let client = AcmeDnsClient::new(server.base_url()).unwrap();
+        let err = client.register(None).await.unwrap_err();
+
+        mock.assert();
+
+        let Error::Json(_) = err else {
+            panic!("expected Error::Json, got {err:?}");
+        };
     }
 }

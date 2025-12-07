@@ -72,7 +72,7 @@ test-watch-verbose *args:
 
 # Build coverage report
 test-coverage *args: clean
-    cargo llvm-cov nextest --manifest-path "{{MANIFEST}}" {{args}} && \
+    cargo llvm-cov nextest --lib --manifest-path "{{MANIFEST}}" {{args}} && \
     cargo llvm-cov --manifest-path "{{MANIFEST}}" {{args}} report --html
 
 # Continuously build coverage report and serve HTTP report
