@@ -1,215 +1,68 @@
 name: Release
 
-permissions:
-  contents: read
-
 on:
   push:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   PROJECT_DIR: acme-dns-client
-  BIN_NAME: rust-acme-dns-client
 
 jobs:
-  build:
-    name: Build - ${{ matrix.platform.release_for }}
-    runs-on: ${{ matrix.platform.os }}
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # create the GitHub Release
 
     defaults:
       run:
         shell: bash
         working-directory: ${{ env.PROJECT_DIR }}
 
-    strategy:
-      matrix:
-        platform:
-          - release_for: Linux-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            name: Linux-x86_64
-            command: build
-          - release_for: Linux-aarch64
-            os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            name: Linux-aarch64
-            command: build
-          - release_for: macOS-x86_64
-            os: macOS-latest
-            target: x86_64-apple-darwin
-            name: Darwin-x86_64
-            command: build
-          - release_for: macOS-arm64
-            os: macOS-latest
-            target: aarch64-apple-darwin
-            name: Darwin-arm64
-            command: build
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update Rust stable
+      - name: Install Rust stable
         run: rustup toolchain install stable --profile minimal
 
-      - name: Prepare Cargo.lock for caching (ignore package version)
-        run: |
-          PROJECT_NAME="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')"
-          awk -v pkg="$PROJECT_NAME" '
-            /^\[\[package\]\]/{p=0}
-            $0 ~ "^name = \"" pkg "\"$"{p=1}
-            p && /^version = /{next}
-            {print}
-          ' Cargo.lock > Cargo.lock.no-version
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles(format('{0}/Cargo.lock.no-version', env.PROJECT_DIR)) }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
       - name: Get version from Cargo.toml
-        uses: SebRollen/toml-action@v1.2.0
         id: cargo_version
-        with:
-          file: ${{ env.PROJECT_DIR }}/Cargo.toml
-          field: package.version
-
-      - name: Get the tag of current release
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify package version is equal to tag version
-        if: ${{ steps.cargo_version.outputs.value != steps.get_version.outputs.VERSION }}
         run: |
-          echo "Cargo.toml: ${{ steps.cargo_version.outputs.value }}"
-          echo "Tag:       ${{ steps.get_version.outputs.VERSION }}"
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          echo "VALUE=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Get tag version
+        id: tag_version
+        run: |
+          echo "VALUE=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag matches Cargo.toml version
+        if: ${{ steps.cargo_version.outputs.VALUE != steps.tag_version.outputs.VALUE }}
+        run: |
+          echo "Cargo.toml: ${{ steps.cargo_version.outputs.VALUE }}"
+          echo "Tag:       ${{ steps.tag_version.outputs.VALUE }}"
           exit 1
 
-      # IMPORTANT: actions-rust-cross runs from repo root; don't rely on working-directory input.
-      - name: Build binary (cross)
-        uses: houseabsolute/actions-rust-cross@v0
-        with:
-          command: ${{ matrix.platform.command }}
-          target: ${{ matrix.platform.target }}
-          args: "--manifest-path ${{ env.PROJECT_DIR }}/Cargo.toml --bin ${{ env.BIN_NAME }} --locked --release"
-          strip: true
-
-      - name: Move binary into project dir root (for packaging)
-        run: mv "target/${{ matrix.platform.target }}/release/${{ env.BIN_NAME }}" .
-
-      - name: Package as archive
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          tar czvf "../${{ env.BIN_NAME }}-v${{ steps.cargo_version.outputs.value }}-${{ matrix.platform.name }}.tar.gz" \
-            "${{ env.BIN_NAME }}"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.BIN_NAME }}-v${{ steps.cargo_version.outputs.value }}-${{ matrix.platform.name }}.tar.gz
-          path: ${{ env.BIN_NAME }}-v${{ steps.cargo_version.outputs.value }}-${{ matrix.platform.name }}.tar.gz
-
-  release:
-    name: Release
-    needs: build
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/download-artifact@v4
-
-      - name: Release
+      - name: Create GitHub Release (source-only)
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: |
-            **/rust-acme-dns-client-v*.tar.gz
-
-  # docker:
-  #   name: Docker image (linux/amd64, linux/arm64)
-  #   needs: release
-  #   runs-on: ubuntu-latest
-
-  #   permissions:
-  #     contents: read
-  #     packages: write   # needed for ghcr push
-
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-
-  #     # Pull down all the tar.gz artifacts your build job uploaded
-  #     - name: Download build artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         path: artifacts
-
-  #     - name: Extract linux binaries into dist/
-  #       shell: bash
-  #       run: |
-  #         set -euo pipefail
-  #         rm -rf dist
-  #         mkdir -p ${{ env.PROJECT_DIR }}/dist/linux-amd64 ${{ env.PROJECT_DIR }}/dist/linux-arm64
-
-  #         # Find and unpack the linux tarballs
-  #         for f in artifacts/**/rust-acme-dns-client-v*-Linux-x86_64.tar.gz; do
-  #           tar -xzf "$f" -C ${{ env.PROJECT_DIR }}/dist/linux-amd64
-  #         done
-
-  #         for f in artifacts/**/rust-acme-dns-client-v*-Linux-aarch64.tar.gz; do
-  #           tar -xzf "$f" -C ${{ env.PROJECT_DIR }}/dist/linux-arm64
-  #         done
-
-  #         # Optional sanity check
-  #         ls -l ${{ env.PROJECT_DIR }}/dist/linux-amd64 ${{ env.PROJECT_DIR }}/dist/linux-arm64
-
-  #     - name: Set up QEMU
-  #       uses: docker/setup-qemu-action@v3
-
-  #     - name: Set up Buildx
-  #       uses: docker/setup-buildx-action@v3
-
-  #     - name: Log in to GHCR
-  #       uses: docker/login-action@v3
-  #       with:
-  #         registry: ghcr.io
-  #         username: ${{ github.actor }}
-  #         password: ${{ secrets.GITHUB_TOKEN }}
-
-  #     - name: Docker metadata
-  #       id: meta
-  #       uses: docker/metadata-action@v5
-  #       with:
-  #         images: ghcr.io/${{ github.repository }}
-  #         tags: |
-  #           type=semver,pattern={{version}},prefix=v
-  #           type=raw,value=latest
-
-  #     - name: Build and push multi-arch image
-  #       uses: docker/build-push-action@v6
-  #       with:
-  #         context: ${{ env.PROJECT_DIR }}
-  #         file: ${{ env.PROJECT_DIR }}/Dockerfile.binary
-  #         platforms: linux/amd64,linux/arm64
-  #         push: true
-  #         tags: ${{ steps.meta.outputs.tags }}
-  #         labels: ${{ steps.meta.outputs.labels }}
-  #         cache-from: type=gha
-  #         cache-to: type=gha,mode=max
-
+          generate_release_notes: true
 
   publish:
     name: Publish crate
     needs: release
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+
     defaults:
       run:
         shell: bash
@@ -219,31 +72,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update Rust stable
+      - name: Install Rust stable
         run: rustup toolchain install stable --profile minimal
 
-      - name: Prepare Cargo.lock for caching (ignore package version)
-        run: |
-          PROJECT_NAME="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')"
-          awk -v pkg="$PROJECT_NAME" '
-            /^\[\[package\]\]/{p=0}
-            $0 ~ "^name = \"" pkg "\"$"{p=1}
-            p && /^version = /{next}
-            {print}
-          ' Cargo.lock > Cargo.lock.no-version
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles(format('{0}/Cargo.lock.no-version', env.PROJECT_DIR)) }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Check crate is ready for publishing
-        run: cargo package
+      - name: Verify crate is publishable
+        run: cargo package --locked
 
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --token "$CARGO_REGISTRY_TOKEN"
+        run: cargo publish --locked --token "$CARGO_REGISTRY_TOKEN"
